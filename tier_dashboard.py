@@ -111,6 +111,13 @@ def load_and_process_data(input_file):
     }
     df["CSM Call Hours / Month"] = df["Account Priority Tier"].map(tier_to_monthly_call_hours).fillna(0.0)
     df["CSM FTE Required"] = df["CSM Call Hours / Month"] / HOURS_PER_CSM_PER_MONTH
+
+    if "Account Manager" in df.columns:
+        df["CSM Total Call Hours / Month (by Account Manager)"] = df.groupby("Account Manager")["CSM Call Hours / Month"].transform("sum")
+        df["CSM Total FTE Required (by Account Manager)"] = df.groupby("Account Manager")["CSM FTE Required"].transform("sum")
+    else:
+        df["CSM Total Call Hours / Month (by Account Manager)"] = pd.NA
+        df["CSM Total FTE Required (by Account Manager)"] = pd.NA
     return df
 
 def main():
@@ -132,6 +139,34 @@ def main():
         st.markdown("## Account Overview and Tiers")
         with st.expander("Show/Hide Full Account Table", expanded=False):
             st.dataframe(df, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("### CSM Workload Summary")
+
+        total_hours = float(df["CSM Call Hours / Month"].sum())
+        total_fte = float(df["CSM FTE Required"].sum())
+        m_col1, m_col2 = st.columns(2, gap="large")
+        with m_col1:
+            st.metric("Total CSM Call Hours / Month", f"{total_hours:,.1f}")
+        with m_col2:
+            st.metric("Total CSM FTE Required", f"{total_fte:,.2f}")
+
+        if "Account Manager" in df.columns:
+            workload_by_am = (
+                df.groupby("Account Manager", dropna=False)
+                .agg(
+                    **{
+                        "Accounts": ("Account ID Case Safe", "nunique"),
+                        "CSM Call Hours / Month": ("CSM Call Hours / Month", "sum"),
+                        "CSM FTE Required": ("CSM FTE Required", "sum"),
+                    }
+                )
+                .reset_index()
+                .sort_values("CSM Call Hours / Month", ascending=False)
+            )
+            st.dataframe(workload_by_am, use_container_width=True)
+        else:
+            st.info("Column 'Account Manager' not found, so workload cannot be summarized by CSM.")
 
         st.markdown("---")
         st.markdown("### Distributions and Summary Stats")
