@@ -15,6 +15,8 @@ PRODUCT_COLS = [
     "Toll Usage MRR",
 ]
 
+HOURS_PER_CSM_PER_MONTH = 6.5 * 21
+
 def assign_revenue_tier(mrr: float) -> str:
     if pd.isna(mrr):
         return "Unknown"
@@ -71,12 +73,44 @@ def assign_priority_tier(row) -> str:
 
 def load_and_process_data(input_file):
     df = pd.read_excel(input_file)
-    df["Total Usage MRR"] = df[PRODUCT_COLS].fillna(0).sum(axis=1)
-    df["Product Count"] = (df[PRODUCT_COLS].fillna(0) > 0).sum(axis=1)
+
+    # Normalize column names to avoid KeyErrors due to trailing/leading whitespace.
+    df.columns = df.columns.map(lambda c: c.strip() if isinstance(c, str) else c)
+
+    product_cols_present = [c for c in PRODUCT_COLS if c in df.columns]
+    product_cols_missing = [c for c in PRODUCT_COLS if c not in df.columns]
+
+    if len(product_cols_present) == 0:
+        st.error(
+            "Upload failed: none of the expected product MRR columns were found in this file. "
+            "Please confirm your export includes these columns, or update PRODUCT_COLS in the app.\n\n"
+            f"Missing columns: {product_cols_missing}\n\n"
+            f"Columns found in file: {list(df.columns)}"
+        )
+        st.stop()
+
+    if "VUM Total" not in df.columns:
+        st.error(
+            "Upload failed: required column 'VUM Total' was not found in this file.\n\n"
+            f"Columns found in file: {list(df.columns)}"
+        )
+        st.stop()
+
+    df["Total Usage MRR"] = df[product_cols_present].fillna(0).sum(axis=1)
+    df["Product Count"] = (df[product_cols_present].fillna(0) > 0).sum(axis=1)
     df["Revenue Tier"] = df["Total Usage MRR"].apply(assign_revenue_tier)
     df["VUM Tier"] = df["VUM Total"].apply(assign_vum_tier)
     df["Product Mix Tier"] = df["Product Count"].apply(assign_mix_tier)
     df["Account Priority Tier"] = df.apply(assign_priority_tier, axis=1)
+
+    tier_to_monthly_call_hours = {
+        "White Glove": 2.0,
+        "Growth": 1.0,
+        "Strategic": 1.0,
+        "Low Touch": 1.0 / 3.0,
+    }
+    df["CSM Call Hours / Month"] = df["Account Priority Tier"].map(tier_to_monthly_call_hours).fillna(0.0)
+    df["CSM FTE Required"] = df["CSM Call Hours / Month"] / HOURS_PER_CSM_PER_MONTH
     return df
 
 def main():
