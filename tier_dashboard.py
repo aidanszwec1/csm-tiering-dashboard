@@ -40,33 +40,52 @@ def assign_vum_tier(vum: float) -> str:
 def assign_mix_tier(count: int) -> str:
     if pd.isna(count) or count == 0:
         return "None"
-    if count >= 5:
-        return "Full Stack"
-    elif count == 4:
+    if count >= 3:
         return "Strong"
-    elif count == 3:
-        return "Moderate"
     elif count == 2:
-        return "Low"
+        return "Moderate"
     else:
-        return "Single"
+        return "Low"
 
 def assign_priority_tier(row) -> str:
     rev = row["Revenue Tier"]
     vum = row["VUM Tier"]
     product_count = row["Product Count"]
 
-    high_rev = (rev == "High")
-    high_vum = (vum == "High")
-    high_mix = (product_count >= 3)
+    product_mix = row["Product Mix Tier"]
+    total_usage_mrr = row["Total Usage MRR"]
 
-    if high_rev and high_vum and high_mix:
-        return "White Glove"
+    # 1) White Glove (ALL required)
     if (
-        (rev == "Mid" and (high_vum or high_mix)) or
-        (rev == "Low" and high_vum and high_mix)
+        rev == "High"
+        and vum == "High"
+        and product_mix == "Strong"
+        and product_count >= 3
+        and (not pd.isna(total_usage_mrr) and total_usage_mrr >= 1500)
+    ):
+        return "White Glove"
+
+    # 2) Growth
+    # High revenue accounts that aren't White Glove still warrant managed engagement
+    if rev == "High":
+        return "Growth"
+
+    # Option A – Revenue-led Growth
+    if rev == "Mid" and vum in {"Mid", "High"} and product_count >= 2:
+        return "Growth"
+
+    # Option B – Complexity-led Growth
+    if rev in {"Low", "Mid"} and vum == "High" and product_count >= 3:
+        return "Growth"
+
+    # Option C – Expansion-ready
+    if (
+        product_mix == "Moderate"
+        and (not pd.isna(total_usage_mrr) and total_usage_mrr >= 750)
     ):
         return "Growth"
+
+    # 3) Tech Touch (default)
     return "Tech Touch"
 
 def load_and_process_data(input_file):
@@ -208,7 +227,7 @@ def main():
         pm_col1, pm_col2 = st.columns([2,1], gap="large")
         with pm_col1:
             st.markdown("**Product Mix Tier Distribution**")
-            fig4 = px.histogram(df, x="Product Mix Tier", color="Product Mix Tier", category_orders={"Product Mix Tier": ["Full Stack","Strong","Moderate","Single","None"]}, title=None, text_auto=True)
+            fig4 = px.histogram(df, x="Product Mix Tier", color="Product Mix Tier", category_orders={"Product Mix Tier": ["Strong","Moderate","Low","None"]}, title=None, text_auto=True)
             st.plotly_chart(fig4, use_container_width=True, key="product_mix_tier")
         with pm_col2:
             st.markdown("**Product Mix Tier Table**")
@@ -224,7 +243,7 @@ def main():
         )
 
         if white_glove.empty:
-            st.info("No accounts currently meet the White Glove criteria (High MRR ≥ $2k, High VUM ≥ 80, 3+ products).")
+            st.info("No accounts currently meet the White Glove criteria.")
         else:
             display_cols = [
                 "Account Name",

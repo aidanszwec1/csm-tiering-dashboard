@@ -50,16 +50,12 @@ def assign_mix_tier(count: int) -> str:
     """
     if pd.isna(count) or count == 0:
         return "None"
-    if count >= 5:
-        return "Full Stack"
-    elif count == 4:
+    if count >= 3:
         return "Strong"
-    elif count == 3:
-        return "Moderate"
     elif count == 2:
-        return "Low"
+        return "Moderate"
     else:
-        return "Single"
+        return "Low"
 
 
 def assign_priority_tier(row) -> str:
@@ -67,17 +63,40 @@ def assign_priority_tier(row) -> str:
     vum = row["VUM Tier"]
     product_count = row["Product Count"]
 
-    high_rev = (rev == "High")
-    high_vum = (vum == "High")
-    high_mix = (product_count >= 3)
+    product_mix = row["Product Mix Tier"]
+    total_usage_mrr = row["Total Usage MRR"]
 
-    if high_rev and high_vum and high_mix:
-        return "White Glove"
+    # 1) White Glove (ALL required)
     if (
-        (rev == "Mid" and (high_vum or high_mix)) or
-        (rev == "Low" and high_vum and high_mix)
+        rev == "High"
+        and vum == "High"
+        and product_mix == "Strong"
+        and product_count >= 3
+        and (not pd.isna(total_usage_mrr) and total_usage_mrr >= 1500)
+    ):
+        return "White Glove"
+
+    # 2) Growth
+    # High revenue accounts that aren't White Glove still warrant managed engagement
+    if rev == "High":
+        return "Growth"
+
+    # Option A – Revenue-led Growth
+    if rev == "Mid" and vum in {"Mid", "High"} and product_count >= 2:
+        return "Growth"
+
+    # Option B – Complexity-led Growth
+    if rev in {"Low", "Mid"} and vum == "High" and product_count >= 3:
+        return "Growth"
+
+    # Option C – Expansion-ready
+    if (
+        product_mix == "Moderate"
+        and (not pd.isna(total_usage_mrr) and total_usage_mrr >= 750)
     ):
         return "Growth"
+
+    # 3) Tech Touch (default)
     return "Tech Touch"
 
 
@@ -115,7 +134,7 @@ def main():
             total_vum=("VUM Total", "sum"),
             avg_vum=("VUM Total", "mean"),
             avg_product_count=("Product Count", "mean"),
-            full_stack_accounts=("Product Mix Tier", lambda s: (s == "Full Stack").sum()),
+            full_stack_accounts=("Product Mix Tier", lambda s: (s == "Strong").sum()),
             csm_call_hours_per_month=("CSM Call Hours / Month", "sum"),
         )
         .reset_index()
