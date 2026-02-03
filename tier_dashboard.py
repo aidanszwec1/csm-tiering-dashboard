@@ -67,9 +67,7 @@ def assign_priority_tier(row) -> str:
         (rev == "Low" and high_vum and high_mix)
     ):
         return "Growth"
-    if (rev == "Low" and vum == "Low" and product_count <= 1):
-        return "Low Touch"
-    return "Strategic"
+    return "Tech Touch"
 
 def load_and_process_data(input_file):
     df = pd.read_excel(input_file)
@@ -104,10 +102,9 @@ def load_and_process_data(input_file):
     df["Account Priority Tier"] = df.apply(assign_priority_tier, axis=1)
 
     tier_to_monthly_call_hours = {
-        "White Glove": 2.0,
-        "Growth": 1.0,
-        "Strategic": 1.0,
-        "Low Touch": 1.0 / 3.0,
+        "White Glove": 1.0,
+        "Growth": 0.5,
+        "Tech Touch": 0.0,
     }
     df["CSM Call Hours / Month"] = df["Account Priority Tier"].map(tier_to_monthly_call_hours).fillna(0.0)
     df["CSM FTE Required"] = df["CSM Call Hours / Month"] / HOURS_PER_CSM_PER_MONTH
@@ -126,11 +123,17 @@ def main():
     st.write("Upload a new Excel file or use the default.")
     uploaded_file = st.file_uploader("Choose an Excel file", type=["xlsx"])
     if uploaded_file:
+        st.caption(f"Data source: uploaded file ({uploaded_file.name})")
         df = load_and_process_data(uploaded_file)
     else:
         if not os.path.exists(INPUT_FILE):
             st.warning("Default Excel file not found. Please upload an Excel file to continue.")
             st.stop()
+        try:
+            mtime = os.path.getmtime(INPUT_FILE)
+            st.caption(f"Data source: default file ({INPUT_FILE}) | Last modified: {pd.to_datetime(mtime, unit='s')}")
+        except OSError:
+            st.caption(f"Data source: default file ({INPUT_FILE})")
         df = load_and_process_data(INPUT_FILE)
 
     tab1, tab2 = st.tabs(["Dashboard", "Tier Distribution by Selection"])

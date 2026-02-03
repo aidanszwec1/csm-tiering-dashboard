@@ -19,7 +19,7 @@ def assign_revenue_tier(mrr: float) -> str:
     """High / Mid / Low based on Total Usage MRR."""
     if pd.isna(mrr):
         return "Unknown"
-    if mrr > 2000:
+    if mrr >= 2000:
         return "High"
     elif mrr >= 1000:
         return "Mid"
@@ -31,9 +31,9 @@ def assign_vum_tier(vum: float) -> str:
     """High / Mid / Low based on VUM Total."""
     if pd.isna(vum):
         return "Unknown"
-    if vum > 100:
+    if vum >= 80:
         return "High"
-    elif vum >= 50:
+    elif vum >= 40:
         return "Mid"
     else:
         return "Low"
@@ -50,14 +50,35 @@ def assign_mix_tier(count: int) -> str:
     """
     if pd.isna(count) or count == 0:
         return "None"
-    if count >= 4:
+    if count >= 5:
         return "Full Stack"
-    elif count == 3:
+    elif count == 4:
         return "Strong"
-    elif count == 2:
+    elif count == 3:
         return "Moderate"
+    elif count == 2:
+        return "Low"
     else:
         return "Single"
+
+
+def assign_priority_tier(row) -> str:
+    rev = row["Revenue Tier"]
+    vum = row["VUM Tier"]
+    product_count = row["Product Count"]
+
+    high_rev = (rev == "High")
+    high_vum = (vum == "High")
+    high_mix = (product_count >= 3)
+
+    if high_rev and high_vum and high_mix:
+        return "White Glove"
+    if (
+        (rev == "Mid" and (high_vum or high_mix)) or
+        (rev == "Low" and high_vum and high_mix)
+    ):
+        return "Growth"
+    return "Tech Touch"
 
 
 def main():
@@ -74,6 +95,14 @@ def main():
     df["Revenue Tier"] = df["Total Usage MRR"].apply(assign_revenue_tier)
     df["VUM Tier"] = df["VUM Total"].apply(assign_vum_tier)
     df["Product Mix Tier"] = df["Product Count"].apply(assign_mix_tier)
+    df["Account Priority Tier"] = df.apply(assign_priority_tier, axis=1)
+
+    tier_to_monthly_call_hours = {
+        "White Glove": 1.0,
+        "Growth": 0.5,
+        "Tech Touch": 0.0,
+    }
+    df["CSM Call Hours / Month"] = df["Account Priority Tier"].map(tier_to_monthly_call_hours).fillna(0.0)
 
     # ---- 5. Build CSM-level summary ----
     # If Account ID is duplicated across rows, nunique prevents double-counting
@@ -87,6 +116,7 @@ def main():
             avg_vum=("VUM Total", "mean"),
             avg_product_count=("Product Count", "mean"),
             full_stack_accounts=("Product Mix Tier", lambda s: (s == "Full Stack").sum()),
+            csm_call_hours_per_month=("CSM Call Hours / Month", "sum"),
         )
         .reset_index()
     )
