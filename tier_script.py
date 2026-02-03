@@ -100,6 +100,46 @@ def assign_priority_tier(row) -> str:
     return "Tech Touch"
 
 
+def assign_tier_trajectory(row) -> str:
+    tier = row["Account Priority Tier"]
+    rev = row["Revenue Tier"]
+    vum = row["VUM Tier"]
+    product_count = row["Product Count"]
+    product_mix = row["Product Mix Tier"]
+    total_usage_mrr = row["Total Usage MRR"]
+
+    # Tech Touch -> Growth proximity
+    if tier == "Tech Touch":
+        growth_signals_met = sum(
+            [
+                product_count >= 2,
+                vum in {"Mid", "High"},
+                product_mix in {"Moderate", "Strong"},
+                (not pd.isna(total_usage_mrr) and total_usage_mrr >= 750),
+            ]
+        )
+        if (not pd.isna(total_usage_mrr) and total_usage_mrr >= 500) and growth_signals_met >= 2:
+            return "Near Upgrade"
+
+    # Growth -> White Glove proximity
+    if tier == "Growth":
+        white_glove_criteria_met = sum(
+            [
+                rev == "High",
+                vum == "High",
+                product_mix == "Strong",
+                product_count >= 3,
+                (not pd.isna(total_usage_mrr) and total_usage_mrr >= 1500),
+            ]
+        )
+
+        no_low_signals = (vum not in {"Low", "Unknown"}) and (product_mix not in {"Low", "None"})
+        if no_low_signals and white_glove_criteria_met >= 3:
+            return "Near Upgrade"
+
+    return "Stable"
+
+
 def main():
     # ---- 1. Load data ----
     df = pd.read_excel(INPUT_FILE)
@@ -115,6 +155,7 @@ def main():
     df["VUM Tier"] = df["VUM Total"].apply(assign_vum_tier)
     df["Product Mix Tier"] = df["Product Count"].apply(assign_mix_tier)
     df["Account Priority Tier"] = df.apply(assign_priority_tier, axis=1)
+    df["Tier Trajectory"] = df.apply(assign_tier_trajectory, axis=1)
 
     tier_to_monthly_call_hours = {
         "White Glove": 1.0,
