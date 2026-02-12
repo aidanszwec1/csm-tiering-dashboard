@@ -14,6 +14,10 @@ PRODUCT_COLS = [
     "Toll Usage MRR",
 ]
 
+WHITE_GLOVE_MRR_THRESHOLD = 1500
+GROWTH_MRR_THRESHOLD = 1000
+GROWTH_TO_WHITE_GLOVE_NEAR_UPGRADE_MRR_THRESHOLD = 1300
+
 # --------- TIER LOGIC ---------
 def assign_revenue_tier(mrr: float) -> str:
     """High / Mid / Low based on Total Usage MRR."""
@@ -66,19 +70,13 @@ def assign_priority_tier(row) -> str:
     product_mix = row["Product Mix Tier"]
     total_usage_mrr = row["Total Usage MRR"]
 
-    # 1) White Glove (ALL required)
-    if (
-        rev == "High"
-        and vum == "High"
-        and product_mix == "Strong"
-        and product_count >= 3
-        and (not pd.isna(total_usage_mrr) and total_usage_mrr >= 1500)
-    ):
+    # 1) White Glove (MRR-led)
+    if not pd.isna(total_usage_mrr) and total_usage_mrr >= WHITE_GLOVE_MRR_THRESHOLD:
         return "White Glove"
 
     # 2) Growth
-    # High revenue accounts that aren't White Glove still warrant managed engagement
-    if rev == "High":
+    # High MRR accounts that aren't White Glove still warrant managed engagement
+    if not pd.isna(total_usage_mrr) and total_usage_mrr >= GROWTH_MRR_THRESHOLD:
         return "Growth"
 
     # Option A – Revenue-led Growth
@@ -123,18 +121,10 @@ def assign_tier_trajectory(row) -> str:
 
     # Growth -> White Glove proximity
     if tier == "Growth":
-        white_glove_criteria_met = sum(
-            [
-                rev == "High",
-                vum == "High",
-                product_mix == "Strong",
-                product_count >= 3,
-                (not pd.isna(total_usage_mrr) and total_usage_mrr >= 1500),
-            ]
-        )
-
-        no_low_signals = (vum not in {"Low", "Unknown"}) and (product_mix not in {"Low", "None"})
-        if no_low_signals and white_glove_criteria_met >= 3:
+        if (
+            not pd.isna(total_usage_mrr)
+            and total_usage_mrr >= GROWTH_TO_WHITE_GLOVE_NEAR_UPGRADE_MRR_THRESHOLD
+        ):
             return "Near Upgrade"
 
     return "Stable"
