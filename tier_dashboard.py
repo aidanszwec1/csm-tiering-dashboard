@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
+import numpy as np
 
 # --------- CONFIG ---------
 INPUT_FILE = "TIER_DATA.xlsx"  # your input file
@@ -167,6 +168,52 @@ def load_and_process_data(input_file):
         df["CSM Total FTE Required (by Account Manager)"] = pd.NA
     return df
 
+
+def allocate_csms_by_oem(oem_hours: pd.Series, total_csms: int) -> pd.Series:
+    oem_hours = oem_hours.fillna(0.0)
+    oem_hours = oem_hours[oem_hours > 0]
+    if oem_hours.empty:
+        return pd.Series(dtype=int)
+    if total_csms <= 0:
+        return pd.Series(0, index=oem_hours.index, dtype=int)
+
+    total_hours = float(oem_hours.sum())
+    raw = (oem_hours / total_hours) * float(total_csms)
+    base = np.floor(raw).astype(int)
+
+    remaining = int(total_csms - int(base.sum()))
+    if remaining > 0:
+        remainders = (raw - base).sort_values(ascending=False)
+        for oem in remainders.index[:remaining]:
+            base.loc[oem] += 1
+
+    base[base < 0] = 0
+    return base
+
+
+def simulate_within_oem_assignment(df: pd.DataFrame, oem_col: str, allocation: pd.Series, seed: int) -> pd.DataFrame:
+    rng = np.random.default_rng(int(seed))
+    rows = []
+    for oem, csm_count in allocation.items():
+        if int(csm_count) <= 0:
+            continue
+        oem_df = df[df[oem_col] == oem]
+        if oem_df.empty:
+            continue
+        csm_ids = [f"{oem} | CSM {i+1}" for i in range(int(csm_count))]
+        assigned = rng.integers(low=0, high=len(csm_ids), size=len(oem_df))
+        hours = (
+            oem_df[["CSM Call Hours / Month"]]
+            .assign(sim_csm=[csm_ids[i] for i in assigned])
+            .groupby("sim_csm")["CSM Call Hours / Month"]
+            .sum()
+        )
+        for sim_csm, h in hours.items():
+            rows.append({"Simulated CSM": sim_csm, "OEM": oem, "Call Hours / Month": float(h)})
+    if not rows:
+        return pd.DataFrame(columns=["Simulated CSM", "OEM", "Call Hours / Month"])
+    return pd.DataFrame(rows)
+
 def main():
     st.set_page_config(layout="wide")
     st.title("CSM Tiering Dashboard")
@@ -186,7 +233,7 @@ def main():
             st.caption(f"Data source: default file ({INPUT_FILE})")
         df = load_and_process_data(INPUT_FILE)
 
-    tab1, tab2 = st.tabs(["Dashboard", "Tier Distribution by Selection"])
+    tab1, tab2, tab3 = st.tabs(["Dashboard", "Tier Distribution by Selection", "OEM Split Experiment"])
 
     with tab1:
         st.markdown("## Account Overview and Tiers")
@@ -312,6 +359,86 @@ def main():
         tier_value = st.selectbox(f"Select {tier_type}", sorted(tier_values), key="tier_table_value")
         filtered_accounts = df[df[tier_type] == tier_value]
         st.dataframe(filtered_accounts)
+
+    with tab3:
+        st.header("OEM Split Experiment")
+
+        oem_col = "Primary Manufacturer" if "Primary Manufacturer" in df.columns else None
+        if oem_col is None:
+            st.info("Column 'Primary Manufacturer' not found, so OEM split experiment cannot run.")
+        else:
+            oem_df = df.dropna(subset=[oem_col]).copy()
+            if oem_df.empty:
+                st.info("No OEM values found to analyze.")
+            else:
+                total_call_hours = float(oem_df["CSM Call Hours / Month"].sum())
+                st.metric("Total Call Hours / Month (all OEMs)", f"{total_call_hours:,.1f}")
+
+                oem_hours = (
+                    oem_df.groupby(oem_col, dropna=False)["CSM Call Hours / Month"]
+                    .sum()
+                    .sort_values(ascending=False)
+                )
+
+                total_csms = st.number_input("Total CSMs to allocate across OEMs", min_value=1, max_value=500, value=10, step=1)
+                allocation = allocate_csms_by_oem(oem_hours, int(total_csms))
+
+                result = (
+                    pd.DataFrame({
+                        "OEM": oem_hours.index,
+                        "Call Hours / Month": oem_hours.values,
+                    })
+                    .set_index("OEM")
+                    .assign(
+                        **{
+                            "Allocated CSMs": allocation,
+                        }
+                    )
+                )
+                result["Allocated CSMs"] = result["Allocated CSMs"].fillna(0).astype(int)
+                result["Call Hours / CSM / Month"] = result.apply(
+                    lambda r: (float(r["Call Hours / Month"]) / float(r["Allocated CSMs"])) if int(r["Allocated CSMs"]) > 0 else float("nan"),
+                    axis=1,
+                )
+
+                st.subheader("Recommended OEM → CSM allocation (fair by call hours)")
+                st.dataframe(result.reset_index(), use_container_width=True)
+
+                hours_per_csm = result["Call Hours / CSM / Month"].dropna()
+                if not hours_per_csm.empty:
+                    c1, c2, c3 = st.columns(3, gap="large")
+                    with c1:
+                        st.metric("Avg Call Hours / CSM / Month", f"{hours_per_csm.mean():,.2f}")
+                    with c2:
+                        st.metric("Min Call Hours / CSM / Month", f"{hours_per_csm.min():,.2f}")
+                    with c3:
+                        st.metric("Max Call Hours / CSM / Month", f"{hours_per_csm.max():,.2f}")
+
+                    fig = px.bar(
+                        result.reset_index(),
+                        x="OEM",
+                        y="Call Hours / CSM / Month",
+                        title=None,
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                st.markdown("---")
+                st.subheader("Random within-OEM assignment simulation")
+                simulate = st.checkbox("Simulate splitting each OEM's accounts across its allocated CSMs", value=True)
+                seed = st.number_input("Random seed", min_value=0, max_value=1_000_000, value=42, step=1)
+                if simulate:
+                    sim_df = simulate_within_oem_assignment(oem_df, oem_col, allocation, int(seed))
+                    if sim_df.empty:
+                        st.info("Simulation produced no results (check allocation / OEM values).")
+                    else:
+                        st.dataframe(sim_df.sort_values("Call Hours / Month", ascending=False), use_container_width=True)
+                        s1, s2, s3 = st.columns(3, gap="large")
+                        with s1:
+                            st.metric("Sim Avg Call Hours / CSM / Month", f"{sim_df['Call Hours / Month'].mean():,.2f}")
+                        with s2:
+                            st.metric("Sim Min Call Hours / CSM / Month", f"{sim_df['Call Hours / Month'].min():,.2f}")
+                        with s3:
+                            st.metric("Sim Max Call Hours / CSM / Month", f"{sim_df['Call Hours / Month'].max():,.2f}")
 
 if __name__ == "__main__":
     main()
