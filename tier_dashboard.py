@@ -5,6 +5,7 @@ import os
 import numpy as np
 
 # --------- CONFIG ---------
+APP_VERSION = "62cfb9b"
 INPUT_FILE = "TIER_DATA.xlsx"  # your input file
 PRODUCT_COLS = [
     "CCD Usage MRR",
@@ -217,6 +218,7 @@ def simulate_within_oem_assignment(df: pd.DataFrame, oem_col: str, allocation: p
 def main():
     st.set_page_config(layout="wide")
     st.title("CSM Tiering Dashboard")
+    st.caption(f"App version: {APP_VERSION}")
     st.write("Upload a new Excel file or use the default.")
     uploaded_file = st.file_uploader("Choose an Excel file", type=["xlsx"])
     if uploaded_file:
