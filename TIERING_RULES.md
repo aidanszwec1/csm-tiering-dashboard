@@ -49,19 +49,53 @@ This document describes the rules used to classify accounts into tiers and to co
 
 # Final Output Tier: `Account Priority Tier`
 
-## 1) White Glove (MRR-led)
+## Weighted score inputs
+
+A weighted score is computed using:
+
+- **Revenue** (based on `Revenue Tier`) = 50%
+- **VUM** (based on `VUM Tier`) = 25%
+- **Usage** (based on `Product Count`) = 25%
+
+### Revenue score
+
+- `Revenue Tier == "High"` -> 1.0
+- `Revenue Tier == "Mid"` -> 0.6
+- `Revenue Tier == "Low"` -> 0.2
+- `Revenue Tier == "Unknown"` -> 0.0
+
+### VUM score
+
+- `VUM Tier == "High"` -> 1.0
+- `VUM Tier == "Mid"` -> 0.6
+- `VUM Tier == "Low"` -> 0.2
+- `VUM Tier == "Unknown"` -> 0.0
+
+### Usage score (based on `Product Count`)
+
+- `Product Count >= 3` -> 1.0
+- `Product Count == 2` -> 0.6
+- `Product Count == 1` -> 0.3
+- `Product Count == 0` (or blank/NaN) -> 0.0
+
+### Score formula
+
+`score = 0.50 * revenue_score + 0.25 * vum_score + 0.25 * usage_score`
+
+## 1) White Glove (weighted)
 
 An account is **White Glove** if:
 
-- `Total Usage MRR >= 1500`
+- `Total Usage MRR >= 1000`
+- AND `score >= 0.80`
 
 ## 2) Growth (ANY of the following)
 
 If the account is not White Glove, it is **Growth** if it matches **any** rule below:
 
-### Growth Rule 1 (High MRR fallback)
+### Growth Rule 1 (Weighted)
 
-- `Total Usage MRR >= 1000` (and not already White Glove)
+- `score >= 0.60` (and not already White Glove)
 
 ### Growth Rule 2 (Option A – Revenue-led Growth)
 

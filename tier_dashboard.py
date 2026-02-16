@@ -17,11 +17,29 @@ PRODUCT_COLS = [
     "Toll Usage MRR",
 ]
 
-WHITE_GLOVE_MRR_THRESHOLD = 1500
-GROWTH_MRR_THRESHOLD = 1000
 GROWTH_TO_WHITE_GLOVE_NEAR_UPGRADE_MRR_THRESHOLD = 1300
 
+REVENUE_WEIGHT = 0.50
+VUM_WEIGHT = 0.25
+USAGE_WEIGHT = 0.25
+
+WHITE_GLOVE_SCORE_THRESHOLD = 0.80
+GROWTH_SCORE_THRESHOLD = 0.60
+
+WHITE_GLOVE_MIN_MRR = 1000
+
 HOURS_PER_CSM_PER_MONTH = 6.5 * 21
+
+PARENT_ACCOUNT_OVERRIDES = {
+    "autonation": "Rikki",
+    "holman": "Brian",
+    "sonic": "Danielle",
+    "new country": "Emily",
+    "sewell": "Brian",
+    "asbury": "Emily",
+    "jay wolfe": "Danielle",
+    "kaplan": "Danielle",
+}
 
 def assign_revenue_tier(mrr: float) -> str:
     if pd.isna(mrr):
@@ -53,6 +71,38 @@ def assign_mix_tier(count: int) -> str:
     else:
         return "Low"
 
+
+def revenue_score(rev_tier: str) -> float:
+    if rev_tier == "High":
+        return 1.0
+    if rev_tier == "Mid":
+        return 0.6
+    if rev_tier == "Low":
+        return 0.2
+    return 0.0
+
+
+def vum_score(vum_tier: str) -> float:
+    if vum_tier == "High":
+        return 1.0
+    if vum_tier == "Mid":
+        return 0.6
+    if vum_tier == "Low":
+        return 0.2
+    return 0.0
+
+
+def usage_score(product_count: int) -> float:
+    if pd.isna(product_count):
+        return 0.0
+    if product_count >= 3:
+        return 1.0
+    if product_count == 2:
+        return 0.6
+    if product_count == 1:
+        return 0.3
+    return 0.0
+
 def assign_priority_tier(row) -> str:
     rev = row["Revenue Tier"]
     vum = row["VUM Tier"]
@@ -61,13 +111,22 @@ def assign_priority_tier(row) -> str:
     product_mix = row["Product Mix Tier"]
     total_usage_mrr = row["Total Usage MRR"]
 
-    # 1) White Glove (MRR-led)
-    if not pd.isna(total_usage_mrr) and total_usage_mrr >= WHITE_GLOVE_MRR_THRESHOLD:
+    score = (
+        REVENUE_WEIGHT * revenue_score(rev)
+        + VUM_WEIGHT * vum_score(vum)
+        + USAGE_WEIGHT * usage_score(product_count)
+    )
+
+    # 1) White Glove (weighted)
+    if (
+        not pd.isna(total_usage_mrr)
+        and total_usage_mrr >= WHITE_GLOVE_MIN_MRR
+        and score >= WHITE_GLOVE_SCORE_THRESHOLD
+    ):
         return "White Glove"
 
-    # 2) Growth
-    # High MRR accounts that aren't White Glove still warrant managed engagement
-    if not pd.isna(total_usage_mrr) and total_usage_mrr >= GROWTH_MRR_THRESHOLD:
+    # 2) Growth (weighted)
+    if score >= GROWTH_SCORE_THRESHOLD:
         return "Growth"
 
     # Option A – Revenue-led Growth
@@ -125,6 +184,22 @@ def load_and_process_data(input_file):
 
     # Normalize column names to avoid KeyErrors due to trailing/leading whitespace.
     df.columns = df.columns.map(lambda c: c.strip() if isinstance(c, str) else c)
+
+    if "Account Manager" not in df.columns and "Customer Success Manager" in df.columns:
+        df = df.rename(columns={"Customer Success Manager": "Account Manager"})
+
+    if "Parent Account" in df.columns and "Account Manager" in df.columns:
+        parent_norm = (
+            df["Parent Account"]
+            .astype("string")
+            .fillna("")
+            .str.strip()
+            .str.lower()
+        )
+        for parent_key, override_am in PARENT_ACCOUNT_OVERRIDES.items():
+            override_mask = parent_norm.str.contains(parent_key, na=False)
+            if override_mask.any():
+                df.loc[override_mask, "Account Manager"] = override_am
 
     product_cols_present = [c for c in PRODUCT_COLS if c in df.columns]
     product_cols_missing = [c for c in PRODUCT_COLS if c not in df.columns]

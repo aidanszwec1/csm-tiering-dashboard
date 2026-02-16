@@ -2,6 +2,7 @@ TIER_DATA.xlsx
 TIER_OUTPUT.xlsx
 ~$*.xlsx
 *.xlsx
+*.csv
 __pycache__/
 *.pyc
 .DS_Store
