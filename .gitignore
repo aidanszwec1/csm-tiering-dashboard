@@ -3,6 +3,8 @@ TIER_OUTPUT.xlsx
 ~$*.xlsx
 *.xlsx
 *.csv
+!hours.csv
+!export.csv
 __pycache__/
 *.pyc
 .DS_Store

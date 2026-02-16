@@ -31,15 +31,45 @@ WHITE_GLOVE_MIN_MRR = 1000
 HOURS_PER_CSM_PER_MONTH = 6.5 * 21
 
 PARENT_ACCOUNT_OVERRIDES = {
-    "autonation": "Rikki",
-    "holman": "Brian",
-    "sonic": "Danielle",
-    "new country": "Emily",
-    "sewell": "Brian",
-    "asbury": "Emily",
-    "jay wolfe": "Danielle",
-    "kaplan": "Danielle",
+    "autonation": "Rikki Kline",
+    "holman": "Brian Stoneback",
+    "sonic": "Danielle Simon",
+    "new country": "Emily Boudreaux",
+    "sewell": "Brian Stoneback",
+    "asbury": "Emily Boudreaux",
+    "jay wolfe": "Danielle Simon",
+    "kaplan": "Danielle Simon",
 }
+
+ACCOUNT_MANAGER_ALIASES = {
+    "rikki": "Rikki Kline",
+}
+
+
+def canonicalize_csm_name(df: pd.DataFrame, desired_name: str) -> str:
+    if "Account Manager" not in df.columns:
+        return desired_name
+
+    desired_name = str(desired_name).strip()
+    if not desired_name:
+        return desired_name
+
+    manager_series = df["Account Manager"].dropna().astype(str).str.strip()
+    if manager_series.empty:
+        return desired_name
+
+    # Exact match if present.
+    if (manager_series == desired_name).any():
+        return desired_name
+
+    # If desired is a full name, try matching by first name against existing full names.
+    desired_first = desired_name.split()[0].lower()
+    by_first = manager_series[manager_series.str.split().str[0].str.lower() == desired_first]
+    by_first = by_first[by_first.str.contains(" ")]
+    if not by_first.empty:
+        return by_first.value_counts().idxmax()
+
+    return desired_name
 
 def assign_revenue_tier(mrr: float) -> str:
     if pd.isna(mrr):
@@ -188,6 +218,13 @@ def load_and_process_data(input_file):
     if "Account Manager" not in df.columns and "Customer Success Manager" in df.columns:
         df = df.rename(columns={"Customer Success Manager": "Account Manager"})
 
+    if "Account Manager" in df.columns:
+        am_norm = df["Account Manager"].astype("string").fillna("").str.strip().str.lower()
+        for alias_key, canonical_name in ACCOUNT_MANAGER_ALIASES.items():
+            alias_mask = am_norm == alias_key
+            if alias_mask.any():
+                df.loc[alias_mask, "Account Manager"] = canonicalize_csm_name(df, canonical_name)
+
     if "Parent Account" in df.columns and "Account Manager" in df.columns:
         parent_norm = (
             df["Parent Account"]
@@ -197,6 +234,7 @@ def load_and_process_data(input_file):
             .str.lower()
         )
         for parent_key, override_am in PARENT_ACCOUNT_OVERRIDES.items():
+            override_am = canonicalize_csm_name(df, override_am)
             override_mask = parent_norm.str.contains(parent_key, na=False)
             if override_mask.any():
                 df.loc[override_mask, "Account Manager"] = override_am
